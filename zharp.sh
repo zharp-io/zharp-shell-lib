@@ -503,7 +503,7 @@ zharp_finish() {
         _zf_status=2
         if [ -n "${_ZHARP_RUN_DIR:-}" ]; then : > "$_ZHARP_RUN_DIR/reported" 2>/dev/null; fi
         if [ -n "$_zharp_err_code" ]; then
-            _zf_cmd=$_zharp_err_cmd
+            _zf_cmd=${_zharp_err_cmd:-command}
             _zf_stack=$_zharp_err_stack
         else
             # exit N, or a shell without an ERR trap: the exit code is what there is.
@@ -596,6 +596,10 @@ else
     eval '
     TRAPZERR() {
         _zharp_err_code=$?
+        local stop=0
+        [[ -o errexit ]] && stop=1
+        # Nothing in here may end the shell early: errexit and pipefail are off inside the trap.
+        setopt localoptions noerrexit nopipefail
         (( ZSH_SUBSHELL > 0 )) && return 0
         local -a ft fs
         ft=("${funcfiletrace[@]}")
@@ -608,15 +612,15 @@ else
             line=${ft[$i]##*:}
             fn=${fs[$((i + 1))]:-main}
             [[ $file == */zharp.sh ]] && continue
-            [[ -n $file && $file != /* ]] && file="$_zharp_cwd/$file"
+            [[ -n $file && $file != /* && -r "$_zharp_cwd/$file" ]] && file="$_zharp_cwd/$file"
             stack+="${stack:+$nl}at $fn, $file: line $line"
             if (( i == 1 )); then
-                _zharp_err_cmd=$(sed -n "${line}p" "$file" 2>/dev/null | sed -e "s/^[[:space:]]*//" -e "s/[[:space:]]*$//")
+                [[ -r $file ]] && _zharp_err_cmd=$(sed -n "${line}p" "$file" 2>/dev/null | sed -e "s/^[[:space:]]*//" -e "s/[[:space:]]*$//")
             fi
         done
         _zharp_err_stack=$stack
         # zsh runs no EXIT trap when ERR_EXIT ends the script: finish here.
-        [[ -o errexit ]] && { zharp_finish $_zharp_err_code; exit $_zharp_err_code; }
+        (( stop )) && { zharp_finish $_zharp_err_code; exit $_zharp_err_code; }
         return 0
     }
     TRAPEXIT() { zharp_finish $?; }'
