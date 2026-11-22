@@ -1,0 +1,42 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pester:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, shell: powershell }   # Windows PowerShell 5.1
+          - { os: windows-latest, shell: pwsh }
+          - { os: ubuntu-latest, shell: pwsh }
+          - { os: macos-latest, shell: pwsh }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pester 5
+        run: Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+      - name: Tests
+        run: ./tests/run.ps1
+
+  shell:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]   # macOS: bash 3.2 and zsh as shipped
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update && sudo apt-get install -y bats jq zsh; else brew install bats-core jq; fi
+      - name: bats
+        run: bats tests/zharp.bats
+      - name: Portability (the runner's own sh)
+        run: sh tests/portability.sh
