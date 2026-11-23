@@ -540,7 +540,12 @@ zharp_finish() {
     return 0
 }
 
-if [ -z "${BASH_VERSION:-}" ] && [ -z "${ZSH_VERSION:-}" ]; then
+# bash run as sh (macOS's /bin/sh) is in POSIX mode, where bash 3.2 has no >(...): a sh script there
+# gets what it gets from dash.
+_zharp_plain_sh=0
+if [ -z "${BASH_VERSION:-}" ] && [ -z "${ZSH_VERSION:-}" ]; then _zharp_plain_sh=1; fi
+case ":${SHELLOPTS:-}:" in *:posix:*) [ -n "${BASH_VERSION:-}" ] && _zharp_plain_sh=1 ;; esac
+if [ "$_zharp_plain_sh" = 1 ]; then
     # Plain sh (dash, busybox): no ERR trap, so the exit code is what Zharp sees. `zharp run`
     # tells more there.
     _zharp_shell_name=sh
@@ -560,11 +565,17 @@ if [ -n "${BASH_VERSION:-}" ]; then
         _zharp_err_cmd=$BASH_COMMAND
         # A subshell's error is reported by the shell that waits for it.
         [ "${BASH_SUBSHELL:-0}" -gt 0 ] && return 0
-        local i n=${#FUNCNAME[@]} fn file line stack='' text k
+        local i n=${#FUNCNAME[@]} fn file line at=$2 stack='' text k
+        # bash 3.2 (macOS) gives the function's first line as $LINENO in a trap inside a function:
+        # the failing command is the first line from there that has its text.
+        if (( BASH_VERSINFO[0] < 4 && n > 2 )); then
+            k=$(ZHARP_CMD=$_zharp_err_cmd awk -v from="$2" 'NR >= from && index($0, ENVIRON["ZHARP_CMD"]) { print NR; exit }' "${BASH_SOURCE[1]}" 2>/dev/null)
+            [[ -n "$k" ]] && at=$k
+        fi
         # A pipeline: $BASH_COMMAND is only its last command. The line says which one failed.
         local -a statuses=($3)
         if (( ${#statuses[@]} > 1 )); then
-            text=$(sed -n "${2}p" "${BASH_SOURCE[1]}" 2>/dev/null | sed -e "s/^[[:space:]]*//" -e "s/[[:space:]]*$//")
+            text=$(sed -n "${at}p" "${BASH_SOURCE[1]}" 2>/dev/null | sed -e "s/^[[:space:]]*//" -e "s/[[:space:]]*$//")
             for (( k = ${#statuses[@]} - 1; k >= 0; k-- )); do (( statuses[k] != 0 )) && break; done
             local -a parts
             IFS="|" read -r -a parts <<< "$text"
@@ -577,7 +588,7 @@ if [ -n "${BASH_VERSION:-}" ]; then
         for (( i = 1; i < n; i++ )); do
             fn=${FUNCNAME[$i]}
             file=${BASH_SOURCE[$i]}
-            if (( i == 1 )); then line=$2; else line=${BASH_LINENO[$((i - 1))]}; fi
+            if (( i == 1 )); then line=$at; else line=${BASH_LINENO[$((i - 1))]}; fi
             [[ "$fn" == source && "$file" == */zharp.sh ]] && continue
             [[ -n "$file" && "$file" != /* ]] && file="$_zharp_cwd/$file"
             stack+="${stack:+$'\n'}at $fn, ${file:-<No file>}: line $line"

@@ -12,9 +12,12 @@ expect_code() { if [ "$1" -eq "$2" ]; then :; else echo "not ok - exit code $1, 
 
 if command -v bash >/dev/null 2>&1; then
     bash tests/shell/deep.sh >/dev/null 2>&1; expect_code $? 1
-    check "bash $(bash -c 'echo $BASH_VERSION'): failing command and stack" '"cat exited with 1: cat /nonexistent-zharp-file".*at backup, [^"]*deep.sh: line 12'
+    check "bash $(bash -c 'echo $BASH_VERSION'): failing command and stack" '"cat exited with 1: cat /nonexistent-zharp-file".*at copy_files, [^"]*deep.sh: line 7..at backup, [^"]*deep.sh: line 12'
     bash tests/shell/pipeline.sh >/dev/null 2>&1; expect_code $? 1
     check "bash: pipeline" 'grep exited with 1: grep needle /dev/null | sort'
+    # macOS's /bin/sh: bash in POSIX mode is treated as plain sh.
+    bash --posix tests/shell/hook.sh >/dev/null 2>&1; expect_code $? 1
+    check "bash --posix (macOS sh): the hook's exit code" '"hook.sh exited with 1"'
 fi
 sh tests/shell/hook.sh >/dev/null 2>&1; expect_code $? 1
 check "sh ($(readlink -f /bin/sh 2>/dev/null)): the hook's exit code" 'hook.sh exited with 1'
